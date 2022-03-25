@@ -22,17 +22,18 @@ export PSH_DEFUSRPWDHASH="0B1ANiYi45IhxkfmUW155/GBd4IRE="
 #
 # Ports configuration
 #
-export PORTS_BUSYBOX=y
-export PORTS_PCRE=y
+# export PORTS_BUSYBOX=y
+# export PORTS_PCRE=y
 export PORTS_OPENSSL=y
-export PORTS_LIGHTTPD=y
-export PORTS_DROPBEAR=y
-export PORTS_LUA=n
-export PORTS_LZO=y
-export PORTS_OPENVPN=y
-export PORTS_JANSSON=y
+# export PORTS_LIGHTTPD=y
+# export PORTS_DROPBEAR=y
+# export PORTS_LUA=n
+# export PORTS_LZO=y
+# export PORTS_OPENVPN=y
+# export PORTS_JANSSON=y
 export PORTS_CURL=y
-export PORTS_MICROPYTHON=y
+# export PORTS_MICROPYTHON=y
+export PORTS_AZURE_SDK=y
 
 #
 # Platform dependent parameters
