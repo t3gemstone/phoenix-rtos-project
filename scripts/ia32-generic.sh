@@ -11,4 +11,6 @@ exec qemu-system-i386 \
 	-serial stdio \
 	-vga cirrus \
 	-hda "$(dirname "${BASH_SOURCE[0]}")/../_boot/phoenix-ia32-generic.disk" \
-	-netdev user,id=net0 -device rtl8139,netdev=net0 "$@"
+	-netdev bridge,br=virbr0,id=net0 -device rtl8139,netdev=net0,id=nic0,addr=03.0
+	# the above arguments are needed for internet connection assuming that netdev bridge is configured
+	# -netdev user,id=net0 -device rtl8139,netdev=net0 "$@"

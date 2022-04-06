@@ -22,7 +22,7 @@ export PSH_DEFUSRPWDHASH="0B1ANiYi45IhxkfmUW155/GBd4IRE="
 #
 # Ports configuration
 #
-# export PORTS_BUSYBOX=y
+export PORTS_BUSYBOX=y
 # export PORTS_PCRE=y
 export PORTS_OPENSSL=y
 # export PORTS_LIGHTTPD=y

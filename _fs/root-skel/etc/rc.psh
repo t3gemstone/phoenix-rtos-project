@@ -1,4 +1,8 @@
 :{}:
 X /bin/posixsrv
 X /sbin/lwip rtl:0x18:11
+/* advanced setup used in other projects (abbreviated) */
+// X /linuxrc
+/* simpler option with required net setup and psh start */
+X /bin/ash /etc/net_setup.sh
 X /bin/psh

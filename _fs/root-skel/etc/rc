@@ -30,11 +30,13 @@ fi
 # Configure network
 /etc/rc.d/network.sh start
 # Start NTP
-/etc/rc.d/ntpd.sh start
-# Start Telnet server
-/etc/rc.d/telnetd.sh start
-# Start SSH server
-/etc/rc.d/sshd.sh start
+# /etc/rc.d/ntpd.sh start
+# # Start Telnet server
+# /etc/rc.d/telnetd.sh start
+# # Start SSH server
+# /etc/rc.d/sshd.sh start
+
+openssl rehash /etc/ssl/certs
 
 # Custom (per-project, per-customer initialization)
 if [ -f /etc/rc.local ]; then
