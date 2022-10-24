@@ -177,43 +177,43 @@ jobs:
           target: ${{ matrix.target }}
 
   # runs on self-hosted runners with HW targets attached
-    test-hw:
-      needs: build
-      name: run tests on hardware
-      runs-on: ${{ matrix.target }}
-      outputs:
-        runner_result: ${{ steps.runner.outcome }}
-      strategy:
-        matrix:
-          target: ['armv7m7-imxrt106x-evk', 'armv7m7-imxrt117x-evk']
+  test-hw:
+    needs: build
+    name: run tests on hardware
+    runs-on: ${{ matrix.target }}
+    outputs:
+      runner_result: ${{ steps.runner.outcome }}
+    strategy:
+      matrix:
+        target: ['armv7m7-imxrt106x-evk', 'armv7m7-imxrt117x-evk']
 
-      steps:
-        - name: Checkout phoenix-rtos-project
-          uses: actions/checkout@v3
-          with:
-            repository: phoenix-rtos/phoenix-rtos-project
-            submodules: recursive
+    steps:
+      - name: Checkout phoenix-rtos-project
+        uses: actions/checkout@v3
+        with:
+          repository: phoenix-rtos/phoenix-rtos-project
+          submodules: recursive
 
-        - name: Update submodule ${{ github.event.repository.name }}
-          working-directory: ${{ github.event.repository.name }}
-          run: |
-            git fetch --recurse-submodules=no --force ${{ github.event.repository.clone_url }} "+refs/heads/*:refs/remotes/origin/*"
-            git fetch --recurse-submodules=no --force ${{ github.event.repository.clone_url }} "+refs/pull/*/head:refs/remotes/origin/pr/*"
-            git checkout ${{ github.sha }} || git checkout ${{ github.event.pull_request.head.sha }}
+      - name: Update submodule ${{ github.event.repository.name }}
+        working-directory: ${{ github.event.repository.name }}
+        run: |
+          git fetch --recurse-submodules=no --force ${{ github.event.repository.clone_url }} "+refs/heads/*:refs/remotes/origin/*"
+          git fetch --recurse-submodules=no --force ${{ github.event.repository.clone_url }} "+refs/pull/*/head:refs/remotes/origin/pr/*"
+          git checkout ${{ github.sha }} || git checkout ${{ github.event.pull_request.head.sha }}
 
-        - name: Download build artifacts
-          uses: actions/download-artifact@v3
-          with:
-            name: phoenix-rtos-${{ matrix.target }}
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: phoenix-rtos-${{ matrix.target }}
 
-        - name: Untar rootfs
-          working-directory: _fs
-          run: tar -xvf ../rootfs-${{ matrix.target }}.tar
+      - name: Untar rootfs
+        working-directory: _fs
+        run: tar -xvf ../rootfs-${{ matrix.target }}.tar
 
-        - name: Test runner
-          id: runner
-          run: |
-            python3 ./phoenix-rtos-tests/runner.py -T${{ matrix.target }}
+      - name: Test runner
+        id: runner
+        run: |
+          python3 ./phoenix-rtos-tests/runner.py -T${{ matrix.target }}
 
   #  mail-notification:
   #    if: ${{ failure() }}
