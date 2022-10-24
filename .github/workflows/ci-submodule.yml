@@ -120,27 +120,21 @@ jobs:
 
       - name: Get changed and added files
         working-directory: ${{ github.event.repository.name }}
-        id: files
+        id: changed_files
         run: ../scripts/ci/changed_files.sh ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
 
       - name: Run cpptestcli
-        run: scripts/ci/parasoft_cpptestcli.py --fix-compile-db ${{ github.event.repository.name }} ${{ steps.files.outputs.files }}
+        run: scripts/ci/parasoft_cpptestcli.py --fix-compile-db ${{ github.event.repository.name }} ${{ steps.changed_files.outputs.files }}
 
-      - name: Fail
-        run: return 1
+      - name: Install reviewdog
+        run: |
+          wget http://misc.nalajcie.org/reviewdog -O /tmp/reviewdog 2>/dev/null
+          chmod +x /tmp/reviewdog
 
-      #- name: Install reviewdog
-      #  run: |
-      #    wget http://misc.nalajcie.org/reviewdog -O /tmp/reviewdog 2>/dev/null
-      #    chmod +x /tmp/reviewdog
-
-      #- name: Reviewdog
-      #  env:
-      #    REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #  run: |
-      #    cd ${{ github.event.repository.name }}
-      #    git diff -U0 HEAD^
-      #    cat ../result.json | /tmp/reviewdog -f=rdjson -diff="git diff -U0 HEAD^" -name=clang-tidy -reporter=github-pr-review -fail-on-error
+      - name: Post results using reviewdog
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cat rdf.json | /tmp/reviewdog -f=rdjson -diff="git diff -U0 HEAD^" -name=cpptestcli -reporter=github-pr-review -fail-on-error
 
 
   test-emu:
