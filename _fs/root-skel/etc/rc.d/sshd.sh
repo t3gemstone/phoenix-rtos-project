@@ -2,7 +2,7 @@
 
 . /etc/rc.subr
 
-DROPBEAR=/sbin/dropbear
+DROPBEAR="/usr/bin/dropbearmulti dropbear"
 PIDFILE=/var/run/dropbear.pid
 
 

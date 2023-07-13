@@ -8,6 +8,15 @@
 
 [ "${BASH_SOURCE[0]}" -ef "$0" ] && echo "You should source this script, not execute it!" && exit 1
 
+
+#
+# lwIP configuration
+#
+export LWIPOPTS_DIR="$(pwd)/_config/lwip"
+export LWIP_IPSEC_BUILD=no
+export LWIP_IPSEC_DEV=en1
+export LWIP_WIFI_BUILD=no
+
 #
 # Boot configuration
 #
@@ -63,6 +72,7 @@ PRIMARY_SCRIPT=(
 	"kernel ${BOOT_DEVICE}"
 	"app ${BOOT_DEVICE} -x dummyfs;-N;devfs;-D ddr ddr"
 	"app ${BOOT_DEVICE} -x imx6ull-uart ddr ddr"
+	"app ${BOOT_DEVICE} -x imx6ull-gpio ddr ddr"
 	"app ${BOOT_DEVICE} -x imx6ull-flashnor;-q;1;-r;0;${FS_OFFS};${FS_SZ};jffs2 ddr ddr"
 	"app ${BOOT_DEVICE} -x psh;-i;/etc/rc.psh ddr ddr"
 	"go!"
