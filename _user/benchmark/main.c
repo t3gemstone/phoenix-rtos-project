@@ -14,13 +14,15 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include <sys/threads.h>
 #include <sys/time.h>
 
 
-extern int nsleep(time_t *sec, long *nsec);
+#define THREAD_STACK_SIZE 1024
+#define JITTER_SAMPLES    5000
 
 
 #define ERROR_CHECK(x) \
@@ -32,6 +34,7 @@ extern int nsleep(time_t *sec, long *nsec);
 		} \
 	} while (0)
 
+
 #define ERROR_CHECK_THR(x) \
 	do { \
 		int _rc = (x); \
@@ -42,67 +45,39 @@ extern int nsleep(time_t *sec, long *nsec);
 	} while (0)
 
 
-static struct {
-	handle_t taskEndCond;
-	handle_t timerCond[2];
-	int timerLoop[2];
-
-	atomic_bool taskEnd;
-	unsigned int idleTimes[4];
-	uint8_t stack[11][4096];
-	uint8_t idleStack[4][1024];
-	uint8_t timerStack[2][2048];
-} common = {
-	.taskEnd = false
-};
+#define TEST_REPORT(s, thr) \
+	do { \
+		printf("TEST %s RESULTS (%d thread%s):\n", s, thr, (thr > 1) ? "s" : ""); \
+	} while (0)
 
 
-/******************************************************
- *                Infrastructure tasks                *
- ******************************************************/
-time_t saved[2], end[2];
-
-void timer(void *arg)
+static inline uint64_t getCntr(void)
 {
-	unsigned int n = (unsigned int)arg;
+	uint32_t asr22, asr23;
+	uint64_t cntr;
+	__asm__ volatile(
+			"rd %%asr22, %0\n\t"
+			"rd %%asr23, %1\n\t"
+			: "=r"(asr22), "=r"(asr23) :);
 
-	time_t interval;
+	cntr = ((uint64_t)(asr22 & 0xffffffu) << 32) | asr23;
 
-	if (n == 0) {
-		interval = 200;
-	}
-	else if (n == 1) {
-		interval = 1000;
-	}
-	else {
-		endthread();
-	}
-
-	handle_t timerCond = common.timerCond[n];
-	handle_t waitCond, waitMut;
-	ERROR_CHECK_THR(condCreateWithAttr(&waitCond, &(const struct condAttr) { .clock = PH_CLOCK_MONOTONIC }));
-	ERROR_CHECK_THR(mutexCreate(&waitMut));
-
-	mutexLock(waitMut);
-
-	time_t now;
-	(void)gettime(&now, NULL);
-	saved[n] = now;
-
-
-	while (!common.taskEnd) {
-		now += interval;
-		condWait(waitCond, waitMut, now);
-		condBroadcast(timerCond);
-		common.timerLoop[n]++;
-		if ((n == 0) && (common.timerLoop[n] == 10000)) {
-			common.taskEnd = true;
-		}
-	}
-	gettime(&end[n], NULL);
-	mutexUnlock(waitMut);
-	endthread();
+	return cntr;
 }
+
+
+static struct {
+	unsigned int counters[1024];
+	unsigned int bgcounters[1024];
+
+	uint64_t jitter[JITTER_SAMPLES];
+
+	atomic_int taskStart;
+	atomic_int taskEnd;
+
+	uint8_t stack[1024][THREAD_STACK_SIZE];
+	uint8_t bgstack[16][THREAD_STACK_SIZE];
+} common;
 
 
 /******************************************************
@@ -110,18 +85,81 @@ void timer(void *arg)
  ******************************************************/
 
 
-void task1(void *arg)
+void loopTask(void *arg)
 {
+	unsigned int n = (unsigned int)arg;
+	while (!common.taskStart) {
+		usleep(0);
+	}
+
+	while (!common.taskEnd) {
+		unsigned int x = common.counters[n];
+		unsigned int v = (unsigned int)&x;
+		v = (v << 13) ^ v;
+		v = x * (v * v * 15731 + 789221) + 1376312589;
+		v /= 152;
+
+		++common.counters[n];
+	}
+
+	endthread();
+}
+
+
+void jitterTask(void *arg)
+{
+	while (!common.taskStart) {
+		usleep(0);
+	}
+
+	for (int i = 0; (i < JITTER_SAMPLES) && !common.taskEnd; i++) {
+		uint64_t start = getCntr();
+		usleep(1000);
+		uint64_t end = getCntr();
+
+		common.jitter[i] = end - start;
+	}
+
 	endthread();
 }
 
 
 void idleTask(void *arg)
 {
-	unsigned int i = (unsigned int)arg;
-	while (!common.taskEnd) {
-		common.idleTimes[i]++;
+	unsigned int n = (unsigned int)arg;
+	while (!common.taskStart) {
+		usleep(0);
 	}
+
+	while (!common.taskEnd) {
+		++common.bgcounters[n];
+	}
+
+	endthread();
+}
+
+
+static const int allocationSizes[] = { 3, 31, 16, 128, 1, 2015, 30, 290, 100, 2, 496, 1531 };
+
+
+void task3(void *arg)
+{
+	while (!common.taskStart) {
+		usleep(0);
+	}
+
+	for (int i = 0; i < 1000; i++) {
+		void *ptr;
+		for (int j = 0; j < sizeof(allocationSizes) / sizeof(allocationSizes[0]); j++) {
+			ptr = malloc(allocationSizes[j]);
+			if (ptr == NULL) {
+				fprintf(stderr, "malloc failed\n");
+				endthread();
+			}
+			free(ptr);
+		}
+	}
+
 	endthread();
 }
 
@@ -131,45 +169,78 @@ void idleTask(void *arg)
  ******************************************************/
 
 
-int main(void)
+int doTest(void (*task)(void *), int ntasks, void (*bgTask)(void *), int nbgTasks)
 {
-	int tid[15];
-	int idleTid[4];
+	common.taskStart = false;
+	common.taskEnd = false;
 
-	ERROR_CHECK(priority(0));
-	ERROR_CHECK(condCreate(&common.taskEndCond));
+	static int tid[1024];
 
-	/* Run 4 idle tasks as we have 4 cores */
-	for (int i = 0; i < 4; i++) {
-		ERROR_CHECK(beginthreadex(idleTask, 6, common.idleStack[i], sizeof(common.idleStack[i]), (void *)i, &idleTid[i]));
+	for (int i = 0; i < ntasks; i++) {
+		ERROR_CHECK(beginthreadex(task, 2, common.stack[i], sizeof(common.stack[i]), (void *)i, &tid[i]));
 	}
 
-	/* Run software timers */
-	for (int i = 0; i < 2; i++) {
-		ERROR_CHECK(beginthreadex(timer, 1, common.timerStack[i], sizeof(common.timerStack[i]), (void *)i, &tid[i]));
+	static int bgTid[16];
+
+	if (nbgTasks > 16) {
+		nbgTasks = 16;
 	}
 
-	// for (int i = 0; i < 11; i++) {
-	// 	ERROR_CHECK(threadJoin(tid[i], 0));
-	// }
+	for (int i = 0; i < nbgTasks; i++) {
+		ERROR_CHECK(beginthreadex(bgTask, 3, common.bgstack[i], sizeof(common.bgstack[i]), (void *)i, &bgTid[i]));
+	}
 
-	// usleep(2 * 1000 * 1000);
+	common.taskStart = true;
 
-	// common.taskEnd = true;
+	usleep(5 * 1000 * 1000);
 
-	for (int i = 0; i < 2; i++) {
+	common.taskEnd = true;
+
+	for (int i = 0; i < ntasks; i++) {
 		ERROR_CHECK(threadJoin(tid[i], 0));
 	}
 
-	for (int i = 0; i < 4; i++) {
-		ERROR_CHECK(threadJoin(idleTid[i], 0));
+	for (int i = 0; i < nbgTasks; i++) {
+		ERROR_CHECK(threadJoin(bgTid[i], 0));
 	}
 
-	/* Report results */
-	for (int i = 0; i < 4; i++) {
-		printf("Idle task %d: %u\n", i, common.idleTimes[i]);
+
+	return 0;
+}
+
+
+int main(int argc, char *argv[])
+{
+	int ntasks = 750;
+
+	if (argc > 1) {
+		ntasks = atoi(argv[1]);
+		if (ntasks > 1024) {
+			ntasks = 1024;
+			printf("Number of tasks limited to 1024\n");
+		}
 	}
-	printf("Sum of idle times: %u\n", common.idleTimes[0] + common.idleTimes[1] + common.idleTimes[2] + common.idleTimes[3]);
-    printf("Timer 0 time: %llu\n", end[0] - saved[0]);
-    printf("Timer 1 time: %llu\n", end[1] - saved[1]);
+
+	ERROR_CHECK(priority(0));
+
+	ERROR_CHECK(doTest(idleTask, ntasks, NULL, 0));
+
+	TEST_REPORT("High load", ntasks);
+	for (int i = 0; i < ntasks; i++) {
+		printf("%d%c", common.bgcounters[i], (i == ntasks - 1) ? '\n' : ' ');
+	}
+
+	// ERROR_CHECK(doTest(jitterTask, 1, NULL, 0));
+
+	// TEST_REPORT("Jitter", 1);
+	// for (int i = 0; i < JITTER_SAMPLES; i++) {
+	// 	printf("%llu%c", common.jitter[i], (i == JITTER_SAMPLES - 1) ? '\n' : ',');
+	// }
+
+	// ERROR_CHECK(doTest(jitterTask, 1, idleTask, 4));
+
+	// TEST_REPORT("Jitter with idle", 5);
+	// for (int i = 0; i < JITTER_SAMPLES; i++) {
+	// 	printf("%llu%c", common.jitter[i], (i == JITTER_SAMPLES - 1) ? '\n' : ',');
+	// }
 }
